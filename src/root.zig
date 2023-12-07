@@ -89,168 +89,91 @@ fn powMod(comptime T: type, base: T, exp: T, mod: T) T {
 
 //at least it cant, assumig discrete logs are hard to compute
 
+/// Computes the discrete logarithm proof using the Fiat-Shamir heuristic.
+/// This function generates a non-interactive zero-knowledge proof for knowing
+/// the discrete logarithm `x` of `y` to the base `g` modulo `p`.
+///
+/// Arguments:
+///     - `x`: The discrete logarithm that the prover knows.
+///     - `g`: The base of the discrete logarithm.
+///     - `p`: The modulus, a large prime number.
+///
+/// Returns:
+///     - A struct containing `y` (g^x mod p) and the zero-knowledge proof.
 fn discreteLog(x: u64, g: u64, p: u256) struct { y: u256, proof: Proof } {
+    // Imagine Rainicorn's quest as a cryptographic puzzle where she must prove she holds a secret key (x)
+    // without revealing it, akin to solving a riddle without giving away the answer.
 
-    // step 1: compute y = g^x mod p
+    // Step 1: Compute y = g^x mod p
+    // Here, `y` is like a sealed envelope containing a coded message derived from `x`.
+    // The operation g^x mod p is easy to perform but hard to reverse, akin to encrypting a message:
+    // anyone can lock the envelope (compute `y`), but only someone with the key (`x`) can unlock it (compute the discrete log).
     const y = powMod(u256, g, x, p);
 
-    // step 2: choose a random r
-    const r = rnd.random().int(u64) % (p - 1); // Ensure r is in the correct range
+    // Step 2: Choose a random r
+    // `r` is a random number, a diversion akin to a magician's sleight of hand. It's used to create a diversion (`h`)
+    // that is related to `x` but doesn't compromise its secrecy.
+    const r = rnd.random().int(u64) % (p - 1);
 
-    // step 3: compute h = g^r mod p
+    // Step 3: Compute h = g^r mod p
+    // `h` is a commitment, like a publicly shown but indecipherable part of the magician's trick.
+    // It's related to the secret `x` (through the mathematical structure of the problem) but reveals nothing about `x` itself.
     const h = powMod(u256, g, r, p);
 
-    // step 4: generate b using hash function
-    // ~* fiat shamir xformation *~
+    // Step 4: Generate b using a hash function (Fiat-Shamir transformation)
+    // The hash function creates a challenge `b` from `h`, akin to a riddle based on the magician's displayed trick.
+    // It's a transformation that ensures the response (in Step 5) will be inherently tied to the structure of `x` and `r`,
+    // but without direct communication or external influence, maintaining the non-interactive nature of the proof.
     var hasher = Hash.init(.{});
     hasher.update(std.mem.asBytes(&h));
     const hash = hasher.finalResult();
-    const b: u8 = hash[0] & 1; // Using the first bit of the hash as b
-    std.debug.print("b {}", .{b});
+    const b: u8 = hash[0] & 1;
 
     // Step 5: Compute s = (r + bx) mod (p-1)
+    // In this crucial step, `s` is calculated in a way that only someone who knows `x` could achieve.
+    // Here's how it works:
+    // - The value `s` is a combination of the random `r` and the secret `x`, altered by the challenge `b`.
+    // - If `b` is 0, `s` equals `r`, which corresponds to the commitment `h` (as `h = g^r mod p` from Step 3).
+    // - If `b` is 1, `s` becomes `r + x`. This is where the alignment occurs:
+    //   - The verifier will check if `g^s mod p` equals `h * y^b mod p`.
+    //   - Since `y` is `g^x mod p`, and `h` is `g^r mod p`, the right side of the equation becomes `g^r * g^x mod p`.
+    //   - This simplifies to `g^(r + x) mod p`, which is exactly what `g^s` is when `b` is 1.
+    // - Therefore, only someone who knows `x` can construct an `s` that aligns `g^s` with `h * y^b`, regardless of `b`'s value.
+    // - This alignment convincingly demonstrates knowledge of `x` without revealing it, as `s` cleverly encapsulates the secret.
+
     const s = (r + b * x) % (p - 1);
 
     return .{ .y = y, .proof = Proof{ .h = h, .s = s } };
-
-    // u can safely pubilsh A, B, and p
-    // b/c an eavesdropper cannot compute x from data if discrete log is hard
-
-    // suppose u want to get into a unicorn cosplay party
-    // yr spot on the guestlist could be
-
-    // Rainicorn, discrete log key (A, B, p)
-
-    // now, if u show up at the post office to collect a package, you could produce x and anyone could verify that B = A^x(mod p)
-
-    // but then  any eavesdrooper could catch x and impersonate yr unicornass later
-
-    // it is better to keep x secret and only answer certain questions about it
-
-    // SPECIFICALLY
-
-    // 1. prover (you) chooses a random number
-    //// 0 less than greater than r less than p - 1
-    //// and sends the verifier h = A^r(mod p)
-    // 2. verifier sends back a random bit b
-    // 3. prover sends s = (r + bx)(mod (p-1)) to verifier
-    // 4. verifier computes A^s(mod p) which should equal hB^b(mod p)
-
-    // the basic idea here is that
-    // if b = 1
-    // the prover gives a number to the verifier (V)
-    // that looks random
-    // s = r + x (mod p-1)
-    // but Verifier already hows that
-    // h = A^r and B = A^x and can multiply these and compare to A^s
-
-    // we should be careful what is proved by that
-    // what V actually sees are h and s
-    // and so what V knows is that
-    // s = discreteLog(h) + x(mod (p - 1)) where
-    // discreteLog(h) is
-    // the discrete log relative to A
-
-    // the verifier knows s and so do u, the prover
-
-    // now if u also know discreteLog(h)
-    // then
-    // it is clear that you know x
-
-    // so it remains for you to convince the verifier that
-    // you know discreteLog(h)
-
-    // thats where the random bit comes in
-    // if b = 0
-    // you the Prover just sent s = r back to Verifier
-    // Verifier then checks h - A^r(mod p)
-    // i.e. that r is the discrete log of h
-
-    // so
-    // depending on the random bit
-    // Verifier gets s or r but never both
-    // because their difference is x
-
-    // thus Verifier gets no information about x
-
-    // you, the prover
-    // can try to cheat in one of two ways
-
-    // if u dont know x
-    // u can still pick a random r
-    // and send
-    // h = A^r(mod p) to V at the first step
-
-    // if V picks b = 0
-    // you are OK
-    // because you can just send s = r at step 4
-    // and V will be able to check that
-    // A^s = h(mod p)
-
-    // but
-    // if V picks
-    // b = 1
-    // you are stuck because you dont know x
-    // and you cant easily compute an s that will satisfy
-    // A^s = hB(mod p)
-
-    // because that would be equiv to finding the discrete log of hB
-
-    // on the other hand
-    // u the prover might CHEAT
-    // by sending V a h
-    // whose discrete log u dont know
-    // at step 1
-
-    // a good candidate is h = A^sB^-1 for some random s
-
-    // if the verifier picks b = 1
-    // you send this s and it will satisify
-    // A^s=hB^b(mod p)
-    // but if the verifier picks b = 0
-    // you are stuck b/c
-    // you dont know an r such that
-    // A^r = h(mod p)
-
-    // in either case, the verifier will discovered that u cheated
-    // with 50% probability
-    // so after k trials
-    // the xpected number of bits that were 0
-    // is k/2
-    // and if the verifier found that h=A^r on all of these
-    // the virifier would know that the probability of you cheating on a given round is less than 2^-k/2
-
-    // the prob of u hceating on the rounds where b = 1
-    // is the same as
-    // the rounds where
-    // b = 0
-    // because u have no control over the random bit
-
-    // on the first round where b = 1,
-    // the verifier confirms that
-    // s = discreteLog(h) + x
-
-    // since the verifier almost certainly knows
-    // discreteLog(h)
-    // he almost certainly knows x
-
-    // we can make that probability
-    // arbitrarily high by
-    // increasing
-    // k
-
+    // With `y` and `proof`, Rainicorn can confidently validate her identity, akin to a magician concluding a trick.
+    // The proof is a cryptographic performance that convinces the verifier of her knowledge of `x`, while keeping the secret secure.
 }
 
 fn verify(y: u256, g: u64, p: u256, proof: Proof) bool {
-    // Re-generate b using the same hash function
+    // The verifier (like the bouncer at the party) re-generates the challenge b using the same hash function.
+    // This ensures consistency in the verification process, as the same input (h) should yield the same challenge (b).
     var hasher = Hash.init(.{});
     hasher.update(std.mem.asBytes(&proof.h));
     const hash = hasher.finalResult();
-    const b: u8 = hash[0] & 1; // First bit of hash as b
+    const b: u8 = hash[0] & 1; // The challenge bit, derived from the commitment h.
 
-    // Check if g^s ≡ h * y^b mod p
+    // The verifier then checks if the equation g^s ≡ h * y^b mod p holds true.
+    // This equation is the heart of the verification process:
+    // - g^s is the prover's claimed knowledge transformed by the challenge b.
+    // - h * y^b mod p is the combination of the commitment (h) and the public ID (y), altered by the challenge b.
+    // If the prover knows the secret x, they can construct an s such that this equation holds true for any b.
+    // If the equation holds, it strongly suggests that the prover knows x without the verifier learning what x is.
     const leftSide = powMod(u256, g, proof.s, p);
     const rightSide = (proof.h * powMod(u256, y, b, p)) % p;
+    // The equation g^s ≡ h * y^b mod p can only be satisfied if s is calculated as r + bx mod (p-1).
+    // This is because:
+    // 1. When b = 0, s must equal r to satisfy g^s = g^r = h. Only the prover who chose r can know this value.
+    // 2. When b = 1, the equation transforms to g^s = g^(r + x) = g^r * g^x = h * y. For this to hold, s must be r + x.
+    //    Since y = g^x, this shows that the prover can correctly adjust their response s based on their knowledge of x.
+    // In both cases, the correctness of s hinges on the prover's knowledge of x. Any arbitrary choice of s without knowing x
+    // would not align consistently with both h and y under the varying challenges (b values), due to the properties of modular arithmetic.
+    // Hence, a successful verification of this equation strongly indicates that the prover knows x. It leverages the mathematical
+    // characteristics of exponentiation and modular arithmetic to create a scenario where knowledge of x is essential to formulating
+    // a correct and verifiable response.
 
     return leftSide == rightSide;
 }
@@ -259,7 +182,7 @@ const testing = std.testing;
 
 test "zk discrete log" {
     // Initialize parameters
-    const p: u128 = 273389558745553615023177755634264971227;
+    const p: u256 = 273389558745553615023177755634264971227;
     const g: u64 = 1300135;
     const x: u64 = 42; // Secret x
 
