@@ -129,6 +129,7 @@ fn discreteLog(x: u64, g: u64, p: u256) struct { y: u256, proof: Proof } {
     const hash = hasher.finalResult();
     const b: u8 = hash[0] & 1;
 
+    // naive single bit for challenge to try to build intuition
     // Step 5: Compute s = (r + bx) mod (p-1)
     // In this crucial step, `s` is calculated in a way that only someone who knows `x` could achieve.
     // Here's how it works:
